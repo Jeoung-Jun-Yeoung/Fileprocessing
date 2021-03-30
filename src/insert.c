@@ -3,7 +3,16 @@
 #include <string.h>
 
 int main (int argc,char* argv[]) {
+	if (1 >= argc && argc > 4) {
+		printf("인자가 부족합니다.\n");
+		return 0;
+	}
+
 	FILE* fp = fopen(argv[1],"r+");
+	if (fp == NULL) {
+		printf("ERROR\n");
+		return 0;
+	}
 
 	int off1 = atoi(argv[2]);
 	int off2 = off1 + 1;

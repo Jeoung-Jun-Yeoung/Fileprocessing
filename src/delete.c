@@ -3,7 +3,15 @@
 #include <string.h>
 
 int main (int argc,char* argv[]) {
+	if (argc == 1) {
+		printf("인자가 부족합니다.\n");
+		return 0;
+	}
 	FILE* fp = fopen(argv[1],"r+");
+	if (fp == NULL) {
+		printf("ERROR\n");
+		return 0;
+	}
 
 	int off = atoi(argv[2]);
 	int delenum = atoi(argv[3]);
@@ -37,6 +45,10 @@ int main (int argc,char* argv[]) {
 	fclose(fp);
 	
 	FILE* fp1 = fopen(argv[1],"w");
+	if (fp1 == NULL) {
+		printf("ERROR\n");
+		return 0;
+	}
 	fwrite(str,strlen(str),1,fp);
 	fclose(fp1);
 

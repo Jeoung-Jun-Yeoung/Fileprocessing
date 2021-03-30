@@ -7,8 +7,16 @@
 int main (int argc, char* argv[]){
 	//argv 2 은 오프셋
 	//argv 3는 읽을 바이트수	
+	if (argc == 1) {
+		printf("인자가 부족합니다\n");
+		return 0;
+	}
 
 	FILE* fp = fopen(argv[1],"r");
+	if (fp == NULL) {
+		printf("ERROR\n");
+		return 0;
+	}
 
 	int off = atoi(argv[2]);
 	int read = atoi(argv[3]);
