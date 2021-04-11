@@ -10,18 +10,22 @@ int main (int argc, char **argv) {
 	int filesize;
 	char buffer[250];
 	struct timeval start,end,rst;
-	double a;
+	int result;
 	FILE* fp = fopen(argv[1],"rb");
 
 	fread(&num,sizeof(num),1,fp);
+	fclose(fp);
 
-	gettimeofday(&start,NULL);
+	FILE* fp2 = fopen(argv[1],"r");
+	fseek(fp2,4,SEEK_SET);
+
+	gettimeofday(&start,NULL);	
 	for (int i = 0; i < num; i++) {
-		fread(&buffer,sizeof(buffer),1,fp);
+		fread(buffer,sizeof(buffer),1,fp2);
 	}
 	gettimeofday(&end,NULL);
 	timersub(&end,&start,&rst);
-	printf("#record: %d elapsed_time: %ld us\n",num,rst.tv_usec);
-	
+	result = (int)rst.tv_usec + (int)rst.tv_sec;
+	printf("#record: %d elapsed_time: %d us\n",num,result);	
 	return 0;
 }

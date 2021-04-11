@@ -3,6 +3,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define SUFFLE_NUM	50000	
 
@@ -13,6 +14,7 @@ int main(int argc, char **argv) {
 	int *read_order_list;
 	int num_of_records;
 	char buffer[250];
+	int result;
 	struct timeval start, end, rst;
 	
 	FILE* fp = fopen(argv[1],"rb");
@@ -20,18 +22,23 @@ int main(int argc, char **argv) {
 	fread(&num_of_records,sizeof(num_of_records),1,fp);
 
 	read_order_list = (int*)malloc(sizeof(int)*num_of_records);
+	fclose(fp);
+
+	FILE* fp1 = fopen(argv[1],"r");
+	fseek(fp1,4,SEEK_SET);
 
 	GenRecordSequence(read_order_list, num_of_records);
-
+	
 	gettimeofday(&start,NULL);
-
 	for (int i = 0; i < num_of_records; i++) {
 		fseek(fp,read_order_list[i] * 250,SEEK_CUR);
 		fread(buffer,sizeof(buffer),1,fp);
 	}
 	gettimeofday(&end,NULL);
 	timersub(&end,&start,&rst);
-	printf("#record: %d elapsed_time: %ld us\n",num_of_records,rst.tv_usec);
+	
+	result = (int)rst.tv_usec + (int)rst.tv_sec;
+	printf("#record: %d elapsed_time: %d us\n",num_of_records,result);
 
 
 	return 0;
