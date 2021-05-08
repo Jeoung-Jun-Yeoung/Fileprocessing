@@ -18,20 +18,21 @@ int freeblock_index;
 
 void ftl_open()
 {
-	char pagebuf[528];
+	char pagebuf[PAGE_SIZE];
 	char temp[4];
 	int flag = FALSE;
 	int k = 0;
+	int temp_index = 0;
 	//file 이 존재 하면
 	for(int i = 0; i < BLOCKS_PER_DEVICE; i++) {
 		int ppn = PAGES_PER_BLOCK * i;
 		dd_read(ppn,pagebuf);
-		if (!strncmp(pagebuf + SECTOR_SIZE, "0xFFFFFFFF", 4)){
+		
+		memset(temp,0xFF,4);
+		if (memcmp(pagebuf + SECTOR_SIZE, temp, 4)){
 			flag = TRUE;
 			strncpy(temp,pagebuf +SECTOR_SIZE,4);
-			printf("temp %s\n",temp);
 			int lbn = atoi(temp); //없어도 될수도 있음./
-			printf("temp %s atoi %d\n",temp,lbn);
 			address_mapping_table[lbn][0] = lbn;
 			address_mapping_table[lbn][1] = i;
 		}
@@ -53,7 +54,6 @@ void ftl_open()
 		}
 		freeblock_index = 15;
 	}
-	ftl_print();
 }
 
 //
@@ -84,7 +84,8 @@ void ftl_write(int lsn, char *sectorbuf)
 	char secotor[SECTOR_SIZE];
 	char pagebuf[PAGE_SIZE];
 	char spare[SPARE_SIZE];
-
+	char temp[4];
+	memset(temp,0xFF,4);
 	lbn = lsn/PAGES_PER_BLOCK; // 몇번째 블록?
 	offset = lsn % PAGES_PER_BLOCK; // 블록에서 몇번째 page?
 	char tlbn[4];
@@ -95,26 +96,26 @@ void ftl_write(int lsn, char *sectorbuf)
 
 	if (pbn == -1) { // 해당 pbn에 data가 최초로 쓰인다는 의미. 즉 lbn과 매칭된 pbn이 없다.
 		for (int i = 0; i < BLOCKS_PER_DEVICE; i++) { // 비어있는 pbn을 실제 블럭과 매칭시켜줘야 한다.
-			if(i == freeblock_index){
+			if(i == freeblock_index) {
 				continue;
 			}
 			int first_ppn =  i * PAGES_PER_BLOCK;	// 각 블록의 첫번째 page_num을 구한다.
-			dd_read(first_ppn, pagebuf);
-			printf("ssd %s\n", pagebuf);
-			if (!memcmp(pagebuf+SECTOR_SIZE, 0xFF, 1)) { // read를 통해 살펴보면서 freeblock을 찾는다.
+			dd_read(first_ppn, pagebuf);	
+			if (!memcmp(pagebuf+SECTOR_SIZE, temp, 4)){ // read를 통해 살펴보면서 freeblock을 찾는다.
 				address_mapping_table[lbn][1] = i; // 해당 블럭을 배정한다.
-				printf("i %d\n",i);
+			
 				break;	// i is 피지컬 블럭 넘버.
 			}
 		} //lbn과 pbn이 매칭은 된 상황.
 		// offset은 블럭기준.
 
 		pbn = address_mapping_table[lbn][1];
-		printf("pbn %d\n",pbn);
+	
 		int ppn =  (pbn * PAGES_PER_BLOCK) + offset; //내가 요청받은 data를 작성할 ppn
 		 // spare는 그냥 문자열로 저장하지 않아도 되나?
 		// sectorbuf + spare(spare의 앞 4b는 lbn 뒤 4b 는 lsn) = pagebuf;
 		// 앞에 비우고 spare에만 lbn넣어주기.
+		//printf("pbn*PAGES_PER_BLOCK %d\n",pbn*PAGES_PER_BLOCK);
 		dd_read(pbn*PAGES_PER_BLOCK, pagebuf);
 		memcpy(pagebuf+SECTOR_SIZE, tlbn, sizeof(tlbn));
 		dd_write(pbn *PAGES_PER_BLOCK,pagebuf);
@@ -122,8 +123,7 @@ void ftl_write(int lsn, char *sectorbuf)
 		dd_read(ppn,pagebuf);
 		memcpy(pagebuf,sectorbuf,SECTOR_SIZE);
 		memcpy(pagebuf+SECTOR_SIZE,tlbn,sizeof(tlbn));
-		memcpy(pagebuf+SECTOR_SIZE,tlsn,sizeof(tlsn));
-
+		memcpy(pagebuf+SECTOR_SIZE + 4,tlsn,sizeof(tlsn));
 		dd_write(ppn,pagebuf);
 	}
 	else { // lbn이 pbn과 매칭이되어있다.
@@ -131,10 +131,9 @@ void ftl_write(int lsn, char *sectorbuf)
 		dd_read(ppn,pagebuf);
 
 		strncpy(spare,pagebuf + SECTOR_SIZE,16);
-		//lsn 보는거 code 작성 if (lsn >= 0) {overwrite} else if(0xffffff) {최초로 작성}
 	
 		// 0보다 같거나 큰 정수가 나오면 갱신. 아니면 그냥 쓰기.
-		if (strncmp(spare+4,0xffffffff,4)) {
+		if (memcmp(spare+4,temp,4)) {
 			int post_pbn;
 			post_pbn = freeblock_index; // 해당 블럭을 배정한다.
 
@@ -152,8 +151,8 @@ void ftl_write(int lsn, char *sectorbuf)
 			strncpy(spare + 4,tlsn,4);
 			memcpy(pagebuf,sectorbuf,SECTOR_SIZE);
 			strncpy(pagebuf +SECTOR_SIZE,spare,SPARE_SIZE);
-			printf("second %s\n",pagebuf);
 			dd_write(post_ppn,pagebuf);
+			
 
 			dd_erase(pbn);
 			freeblock_index = pbn;
@@ -165,7 +164,6 @@ void ftl_write(int lsn, char *sectorbuf)
 			strncpy(spare + 4,tlsn,4);
 			memcpy(pagebuf,sectorbuf,SECTOR_SIZE);
 			strncpy(pagebuf +SECTOR_SIZE,spare,SPARE_SIZE);
-			printf("second %s\n",pagebuf);
 			dd_write(ppn,pagebuf);
 		}
 	}
