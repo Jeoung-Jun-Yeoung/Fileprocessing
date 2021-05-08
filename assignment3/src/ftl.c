@@ -18,19 +18,18 @@ int freeblock_index;
 
 void ftl_open()
 {
-	char* pagebuf;
-	char* temp = (char*)malloc(sizeof(char)*4);
-	int flag = false;
+	char pagebuf[528];
+	char temp[4];
+	int flag = FALSE;
 	int k = 0;
 	//file 이 존재 하면
 	for(int i = 0; i < BLOCKS_PER_DEVICE; i++) {
 		int ppn = PAGES_PER_BLOCK * i;
-		if (dd_read(ppn,pagebuf) == 1) {
-			flag = true;
-			for(int j = SECTOR_SIZE; j < SECTOR_SIZE + 4; j ++){
-				temp[k] = pagebuf[j];
-				k++;
-			}
+		dd_read(ppn,pagebuf);
+		if (!strncmp(pagebuf + SECTOR_SIZE, "0xFFFFFFFF", 4)){
+			flag = TRUE;
+			strncpy(temp,pagebuf +SECTOR_SIZE,4);
+			printf("temp %s\n",temp);
 			int lbn = atoi(temp); //없어도 될수도 있음./
 			printf("temp %s atoi %d\n",temp,lbn);
 			address_mapping_table[lbn][0] = lbn;
@@ -40,6 +39,7 @@ void ftl_open()
 			freeblock_index = i;
 		}
 	}
+	
 	// file이 존재 하지 않으면,,
 	// address mapping table 초기화 또는 복구
 	// free block's pbn 초기화
@@ -52,8 +52,9 @@ void ftl_open()
 			address_mapping_table[i][0] = i;
 		}
 		freeblock_index = 15;
-	}	
-
+	}
+	ftl_print();
+}
 
 //
 // 이 함수를 호출하는 쪽(file system)에서 이미 sectorbuf가 가리키는 곳에 512B의 메모리가 할당되어 있어야 함
@@ -86,7 +87,10 @@ void ftl_write(int lsn, char *sectorbuf)
 
 	lbn = lsn/PAGES_PER_BLOCK; // 몇번째 블록?
 	offset = lsn % PAGES_PER_BLOCK; // 블록에서 몇번째 page?
-
+	char tlbn[4];
+	sprintf(tlbn,"%d",lbn);
+	char tlsn[4];
+	sprintf(tlsn,"%d",lsn);
 	int pbn = address_mapping_table[lbn][1]; // data를 어떤 ppn에 써야 할지 결정.
 
 	if (pbn == -1) { // 해당 pbn에 data가 최초로 쓰인다는 의미. 즉 lbn과 매칭된 pbn이 없다.
@@ -95,42 +99,46 @@ void ftl_write(int lsn, char *sectorbuf)
 				continue;
 			}
 			int first_ppn =  i * PAGES_PER_BLOCK;	// 각 블록의 첫번째 page_num을 구한다.
-			if (dd_read(first_ppn,pagebuf) == -1) { // read를 통해 살펴보면서 freeblock을 찾는다.
+			dd_read(first_ppn, pagebuf);
+			printf("ssd %s\n", pagebuf);
+			if (!memcmp(pagebuf+SECTOR_SIZE, 0xFF, 1)) { // read를 통해 살펴보면서 freeblock을 찾는다.
 				address_mapping_table[lbn][1] = i; // 해당 블럭을 배정한다.
+				printf("i %d\n",i);
 				break;	// i is 피지컬 블럭 넘버.
 			}
 		} //lbn과 pbn이 매칭은 된 상황.
 		// offset은 블럭기준.
 
 		pbn = address_mapping_table[lbn][1];
+		printf("pbn %d\n",pbn);
 		int ppn =  (pbn * PAGES_PER_BLOCK) + offset; //내가 요청받은 data를 작성할 ppn
 		 // spare는 그냥 문자열로 저장하지 않아도 되나?
 		// sectorbuf + spare(spare의 앞 4b는 lbn 뒤 4b 는 lsn) = pagebuf;
 		// 앞에 비우고 spare에만 lbn넣어주기.
-		char temp_sector[SECTOR_SIZE];
-		memset(temp_sector, 0xFF, SECTOR_SIZE);
-		memcpy(pagebuf,temp_sector,SECTOR_SIZE);
+		dd_read(pbn*PAGES_PER_BLOCK, pagebuf);
+		memcpy(pagebuf+SECTOR_SIZE, tlbn, sizeof(tlbn));
 		dd_write(pbn *PAGES_PER_BLOCK,pagebuf);
 		//spare = lbn; // + lsn
-		memcpy(spare,lbn,4);
+		dd_read(ppn,pagebuf);
 		memcpy(pagebuf,sectorbuf,SECTOR_SIZE);
+		memcpy(pagebuf+SECTOR_SIZE,tlbn,sizeof(tlbn));
+		memcpy(pagebuf+SECTOR_SIZE,tlsn,sizeof(tlsn));
+
 		dd_write(ppn,pagebuf);
 	}
 	else { // lbn이 pbn과 매칭이되어있다.
 		int ppn = (pbn * PAGES_PER_BLOCK) + offset;
 		dd_read(ppn,pagebuf);
-		//pagebuf[]
-		//dd_read()를 통해 spare의 lsn을 본다. ->how?
-		
+
+		strncpy(spare,pagebuf + SECTOR_SIZE,16);
 		//lsn 보는거 code 작성 if (lsn >= 0) {overwrite} else if(0xffffff) {최초로 작성}
 	
 		// 0보다 같거나 큰 정수가 나오면 갱신. 아니면 그냥 쓰기.
-		if (overwrite) {
+		if (strncmp(spare+4,0xffffffff,4)) {
 			int post_pbn;
-		// 갱신인 경우. 
 			post_pbn = freeblock_index; // 해당 블럭을 배정한다.
 
-			for (int i = 0; i < page_per_block; i++){
+			for (int i = 0; i < PAGES_PER_BLOCK; i++){
 				if(i == offset){
 					continue;
 				}
@@ -140,8 +148,11 @@ void ftl_write(int lsn, char *sectorbuf)
 				}
 			} // 옴기는것 끝.
 			int post_ppn = (post_pbn * PAGES_PER_BLOCK) + offset;
-			memcpy(spare,lbn,4);
+			memcpy(spare,tlbn,4);
+			strncpy(spare + 4,tlsn,4);
 			memcpy(pagebuf,sectorbuf,SECTOR_SIZE);
+			strncpy(pagebuf +SECTOR_SIZE,spare,SPARE_SIZE);
+			printf("second %s\n",pagebuf);
 			dd_write(post_ppn,pagebuf);
 
 			dd_erase(pbn);
@@ -150,8 +161,11 @@ void ftl_write(int lsn, char *sectorbuf)
 		}
 
 		else { 
-			memcpy(spare,lbn,4);
+			memcpy(spare,tlbn,4);
+			strncpy(spare + 4,tlsn,4);
 			memcpy(pagebuf,sectorbuf,SECTOR_SIZE);
+			strncpy(pagebuf +SECTOR_SIZE,spare,SPARE_SIZE);
+			printf("second %s\n",pagebuf);
 			dd_write(ppn,pagebuf);
 		}
 	}
