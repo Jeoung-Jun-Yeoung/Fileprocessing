@@ -111,16 +111,16 @@ void add(FILE *fp, const Person *p) {
 
 	before_record = -1;
 	before_page = -1;
+	
 	int count_page;
+	
 	memcpy(&count_page,header_record,4);
 	memcpy(&next_page,header_record + 8 ,4); // header record에서 nextpage를 읽는다.
 	memcpy(&next_record,header_record + 12 ,4); // header record에서 nextrecord를 읽는다.
 	
-	char pagebuf[PAGE_SIZE];
+	char pagebuf[PAGE_SIZE] = {0, };
 	
-	if(count_page == 0){
-		int first_temp = 1;
-		int first_temp_off = 0;
+	if(count_page == 0) {
 		int first_num_of_data_pages = 1;
 		rewind(fp); // fp 초기화.
 		memcpy(header_record,&first_num_of_data_pages,sizeof(int));
@@ -128,17 +128,19 @@ void add(FILE *fp, const Person *p) {
 		memcpy(header_record + 4,&first_num_of_records,sizeof(int));
 		fwrite(header_record,sizeof(header_record),1,fp);
 		//header record 업데이트 끝.
+
+		
+		int first_temp = 1; // page의 총 레코드 갯수. 
 		memcpy(pagebuf,&first_temp,sizeof(int));
-		memcpy(pagebuf + (first_temp * 8) - 4,&first_temp_off,sizeof(int));
+		int first_temp_off = 0; // 첫번째 page의 첫번째 record의 offset은 0
+		memcpy(pagebuf + 4,&first_temp_off,sizeof(int));
 
 		int first_tmp = strlen(recordbuf);
-		memcpy(pagebuf + (first_temp * 8), &first_tmp,sizeof(int));
-		memcpy(pagebuf + HEADER_AREA_SIZE + first_temp_off,recordbuf,strlen(recordbuf));
+		memcpy(pagebuf +  8, &first_tmp,sizeof(int));
+		memcpy(pagebuf + HEADER_AREA_SIZE,recordbuf,strlen(recordbuf));
 		writePage(fp,pagebuf,first_num_of_data_pages);
-
 		return;
 	}
-
 	int flag = 0;
 
 	while(next_page != -1 && next_record != -1) { // 가장 최근에 삭제된 page의 record를 방문.
@@ -185,11 +187,11 @@ void add(FILE *fp, const Person *p) {
 		}
 		before_page = curr_page;
 		before_record = curr_record;
-		
+		printf("XX\n");
 	}
 
 	if(flag != 1) {
-
+		printf("TT\n");
 		rewind(fp);
 		fread(header_record,sizeof(header_record),1,fp); // file의 header record를 읽는다.
 		
@@ -201,18 +203,22 @@ void add(FILE *fp, const Person *p) {
 
 		printf("pg%d re%d\n",num_of_data_pages,num_of_records);
 		readPage(fp,pagebuf,num_of_data_pages);
+
 		int temp = 0;
 		int sum = 0;
 		int temp_off = 0;
+		
 		memcpy(&temp,pagebuf,sizeof(int));
+		
 		printf("temp %d\n",temp);
+		
 		for(int i = 0; i < temp; i++){
 			int len;
 			memcpy(&len,pagebuf + (i + 1) * 8 ,sizeof(int));
-			sum += len;
+			sum = sum + len;
 		}
 		printf("sum %d\n",sum);
-		if(sum + strlen(recordbuf) <= PAGE_SIZE - HEADER_AREA_SIZE && temp < 2 && num_of_data_pages != 0) { // append 가능.
+		if(sum + strlen(recordbuf) <= DATA_AREA_SIZE && temp < 2 && num_of_data_pages != 0) { // append 가능.
 			temp++;
 			temp_off = sum;
 			printf("yes\n");
@@ -229,6 +235,7 @@ void add(FILE *fp, const Person *p) {
 
 		num_of_records++;
 		memcpy(header_record + 4,&num_of_records,sizeof(int));
+		rewind(fp);
 		fwrite(header_record,sizeof(header_record),1,fp);
 		//header record 업데이트 끝.
 		memcpy(pagebuf,&temp,sizeof(int));
