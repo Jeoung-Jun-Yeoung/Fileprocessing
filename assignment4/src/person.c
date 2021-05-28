@@ -22,8 +22,7 @@
 // 페이지 번호에 해당하는 페이지를 주어진 페이지 버퍼에 읽어서 저장한다. 페이지 버퍼는 반드시 페이지 크기와 일치해야 한다.
 //
 void readPage(FILE *fp, char *pagebuf, int pagenum) {
-	fseek(fp,(pagenum) * PAGE_SIZE + 16,SEEK_SET); // header aredea 건너띄어야하지않나?
-											// haderrecod 건너띄고
+	fseek(fp,(pagenum) * PAGE_SIZE + 16,SEEK_SET); 
 	fread(pagebuf,PAGE_SIZE,1,fp);
 
 }
@@ -96,7 +95,6 @@ void unpack(const char *recordbuf, Person *p) {
 void add(FILE *fp, const Person *p) {
 	char* recordbuf = (char*)malloc(sizeof(char)*MAX_RECORD_SIZE);
 	pack(recordbuf,p); 
-	printf("re %s\n",recordbuf);
 	int next_page;
 	int next_record;
 
@@ -114,10 +112,12 @@ void add(FILE *fp, const Person *p) {
 	
 	int count_page;
 	
-	memcpy(&count_page,header_record,4);
-	memcpy(&next_page,header_record + 8 ,4); // header record에서 nextpage를 읽는다.
-	memcpy(&next_record,header_record + 12 ,4); // header record에서 nextrecord를 읽는다.
-	printf("count_page %d nexpg  %d re %d \n",count_page,next_page,next_record);
+	memcpy(&count_page,header_record,sizeof(int));
+	int sum_of_records;
+	memcpy(&sum_of_records,header_record + 4,sizeof(int));
+
+	memcpy(&next_page,header_record + 8 ,sizeof(int)); // header record에서 nextpage를 읽는다.
+	memcpy(&next_record,header_record + 12 ,sizeof(int)); // header record에서 nextrecord를 읽는다.
 	char* pagebuf = (char*)malloc(sizeof(char)*PAGE_SIZE);
 	
 	if(count_page == 0) {
@@ -144,13 +144,11 @@ void add(FILE *fp, const Person *p) {
 	int flag = 0;
 
 	while(next_page != -1 && next_record != -1) { // 가장 최근에 삭제된 page의 record를 방문.
-		printf("가장 최근에 삭제된 페이지 번호 %d \n",next_page);
 		readPage(fp,pagebuf,next_page); // 가장 최근에 삭제된 darapage를 가져온다.
-		printf("해당 page를 읽었습니다\n");
 		char header_area[HEADER_AREA_SIZE]; // header area 선언
 		
 		memcpy(header_area,pagebuf,HEADER_AREA_SIZE); // header area를 읽는다.
-			
+		
 		int offset; // data area 안에서 가려는 레코드의 시작 위치.
 		int length; // data area에서 해당 record의 길이
 
@@ -159,10 +157,10 @@ void add(FILE *fp, const Person *p) {
 
 		memcpy(&offset,header_area + 8 * curr_record + 4,4); // offset + length = 8 이므로 8 * recordnum을 하면 해당 record의 offset과 length에 접근
 		memcpy(&length,header_area + 8 * curr_record + 8,4); // length 읽기.  
-		
+
 		memcpy(&next_page,pagebuf + (HEADER_AREA_SIZE + offset + 1) ,4); // 만약, 현재 page에 담을수 없으면 next로 넘어가야 하기때문에 읽어둔다.
 		memcpy(&next_record,pagebuf + (HEADER_AREA_SIZE + offset + 5) ,4); // recordnum도 읽는다.
-		
+
 		if(strlen(recordbuf) <= length) { // 만약 현재 page의 record의 쓸 수 있다면,
 			memcpy(pagebuf + (offset + HEADER_AREA_SIZE),recordbuf,strlen(recordbuf)); // 해당 page의 record자리에 방문해서 record에 작성.
 			writePage(fp,pagebuf,curr_page); // page업데이트
@@ -178,7 +176,7 @@ void add(FILE *fp, const Person *p) {
 				char temp_pagebuf[PAGE_SIZE];
 				int temp_offset;
 				readPage(fp,temp_pagebuf,before_page);
-				memcpy(&temp_offset,temp_pagebuf + 4 + before_record * 8,4);
+				memcpy(&temp_offset,temp_pagebuf + 4 + (before_record * 8),4);
 				memcpy(temp_pagebuf + temp_offset + 1 + HEADER_AREA_SIZE,&next_page,4);
 				memcpy(temp_pagebuf + temp_offset + 5 + HEADER_AREA_SIZE,&next_record,4);
 			}	
@@ -210,44 +208,56 @@ void add(FILE *fp, const Person *p) {
 		memcpy(&temp,pagebuf,sizeof(int));
 		
 		
-		for(int i = 0; i < temp; i++){
+		for(int i = 0; i < temp; i++) {
 			int len;
 			memcpy(&len,pagebuf + (i + 1) * 8 ,sizeof(int));
 			sum = sum + len;
 		}
-		printf("sum %d \n",sum);
-		if(sum + strlen(recordbuf) <= DATA_AREA_SIZE && 8 <= HEADER_AREA_SIZE - (temp * 8) - 4) { // append 가능.
+
+		
+		int update;
+
+		if (sum + strlen(recordbuf) <= DATA_AREA_SIZE && 8 <= HEADER_AREA_SIZE - (temp * 8) - 4) { // append 가능.
 			temp++;
 			temp_off = sum;
+			update = 1;
 		}
 
 		else {
 			temp = 1;
 			temp_off = 0;
 			num_of_data_pages++;
+			update = 0;
 		}
-		printf("temp %d temp _off %d \n",temp, temp_off);
+
 		
 		num_of_records++;
 		
 		memcpy(header_record,&num_of_data_pages,sizeof(int));
 		memcpy(header_record + 4,&num_of_records,sizeof(int));
-		printf("num_of_data_pages %d num_of_records %d \n",num_of_data_pages, num_of_records);
 		fseek(fp,SEEK_SET,SEEK_SET);
 		fwrite(header_record,sizeof(header_record),1,fp);
 		//header record 업데이트 끝.
+		if(update == 1) {
+			memcpy(pagebuf,&temp,sizeof(int));
+			memcpy(pagebuf + (temp * 8) - 4,&temp_off,sizeof(int));
+			int tmp = strlen(recordbuf);
+			memcpy(pagebuf + (temp * 8), &tmp,sizeof(int));
+			memcpy(pagebuf + HEADER_AREA_SIZE + temp_off,recordbuf,strlen(recordbuf));
+			writePage(fp,pagebuf,num_of_data_pages-1);
+		}
 
-		memcpy(pagebuf,&temp,sizeof(int));
-		memcpy(pagebuf + (temp * 8) - 4,&temp_off,sizeof(int));
-		
+		else if (update == 0) {
+			char* new_pagebuf = (char*)malloc(sizeof(char) * PAGE_SIZE);
+			memcpy(new_pagebuf,&temp,sizeof(int));
+			memcpy(new_pagebuf + (temp * 8) - 4,&temp_off,sizeof(int));
+			int new_tmp = strlen(recordbuf);
+			memcpy(new_pagebuf + (temp * 8), &new_tmp,sizeof(int));
+			memcpy(new_pagebuf + HEADER_AREA_SIZE + temp_off,recordbuf,strlen(recordbuf));
+			writePage(fp,new_pagebuf,num_of_data_pages-1);
+		}
 
-		int tmp = strlen(recordbuf);
-
-		memcpy(pagebuf + (temp * 8), &tmp,sizeof(int));
-		memcpy(pagebuf + HEADER_AREA_SIZE + temp_off,recordbuf,strlen(recordbuf));
-		writePage(fp,pagebuf,num_of_data_pages-1);
 	}
-
 		
 }
 
@@ -267,7 +277,6 @@ void delete(FILE *fp, const char *id) {
 	memcpy(&recent_delete_record,header_record + 12,sizeof(int));
 	char mark = '*';
 	if(num_of_data_pages == 0) { // data page 가 없을 경우 삭제 레코드를 찾을수없기에 에러처리
-		printf("data page is not exist\n");
 		return;
 	}
 	else { // data page가 한개라도 있다면 page를 읽어서 레코드를 찾아야함.
@@ -279,7 +288,6 @@ void delete(FILE *fp, const char *id) {
 			int in_page_records;
 			memcpy(&in_page_records,header_area,sizeof(int)); // 그 page에 record가 몇개 있는지 확인해서
 			
-			printf("in pg re %d\n",in_page_records);
 			
 			for(int j = 0; j < in_page_records; j++) { // 각 record에 접근해서 내용을 가져온다.
 				int offset;
@@ -291,26 +299,20 @@ void delete(FILE *fp, const char *id) {
 				
 				memcpy(temp_record,pagebuf + (offset + HEADER_AREA_SIZE),len); // 해당레코드가져오기
 				
-				printf("temp re %s\n",temp_record);
 				
 				Person* p = (Person*)malloc(sizeof(Person));
 				unpack(temp_record,p);
-				printf("p->id %s\n",p->id);
-				printf("id %s\n",id);
 				if (strncmp(temp_record,id,strlen(p->id)) == 0 ) {// id값을 비교. 같다면 해당 레코드 삭제해야함
 					memcpy(pagebuf + (offset + HEADER_AREA_SIZE),&mark,sizeof(char)); // mark표시해주고 
 					//header record 의 가장 최근 삭제 레코드 정보를 기록.
 					memcpy(pagebuf + (offset + HEADER_AREA_SIZE + 1),&recent_delete_page,sizeof(int)); 
 					memcpy(pagebuf + (offset + HEADER_AREA_SIZE + 5),&recent_delete_record,sizeof(int));
-					printf("rdp %d rdr %d \n",recent_delete_page,recent_delete_record);
 					writePage(fp,pagebuf,i);
 					// 이제는 헤더레코드의 지금 페이지번호와 레코드 번호 작성해야함. i값과 j값.
 					memcpy(header_record + 8,&i,sizeof(int));
 					memcpy(header_record + 12,&j,sizeof(int));
-					printf("i %d j %d \n",i,j);
 					fseek(fp,SEEK_SET,SEEK_SET);
 					fwrite(header_record,sizeof(header_record),1,fp);
-					printf("yes");
 					break;		
 			}
 		}
@@ -339,7 +341,6 @@ int main(int argc, char *argv[])
 
 	if(exist_file == 0) { // file이 기존에 존재할떄.
 		fp = fopen(argv[2],"r+");
-		printf("file is exist.\n");
 	}
 	else if(exist_file == -1){ // file이 기존에 존재하지 않을때
 		fp = fopen(argv[2],"w+"); // 초기화 과정 필요.
@@ -355,17 +356,12 @@ int main(int argc, char *argv[])
 		
 		fwrite(headerrecord,sizeof(headerrecord),1,fp);
 		
-		printf("file is not exist.\n");
-		
 	} 
 	
-//./a.out a person.dat "9804191156" "jy jeoung" "24" "incheon" "01092695054" "asdad@asdasd"
-
 	if(!strcmp(argv[1],"a")) { // add 기능.
 		Person* p = (Person*)malloc(sizeof(Person));
 		strncpy(p->id,argv[3] ,strlen(argv[3])); // 마지막 null 확인.
 		strncpy(p->name,argv[4],strlen(argv[4]));
-		printf("name %s\n",p->name);
 		strncpy(p->age,argv[5] ,strlen(argv[5]));
 		strncpy(p->addr,argv[6] ,strlen(argv[6]));
 		strncpy(p->phone,argv[7] ,strlen(argv[7]));
@@ -378,17 +374,11 @@ int main(int argc, char *argv[])
 	else if(!strcmp(argv[1],"d")) { //delete 기능
 		char delete_id[14];
 		strncpy(delete_id,argv[3],strlen(argv[3]));
-		printf("%s \n",delete_id);
 		delete(fp,delete_id);
-
 	}
 	else {
 		printf("지원하지 않는 option입니다.\n");
 	}
-
-	
-	//filelist의 size를 알아야함.
-
 
 	return 1;
 }
