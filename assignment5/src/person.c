@@ -563,7 +563,6 @@ int main(int argc, char *argv[])
 		char recordbuf[MAX_RECORD_SIZE]; // 레코드 버퍼 선언.
 		char header_area[HEADER_AREA_SIZE]; // 페이지버퍼의 헤더 선언.
 
-		printf("page num is %d\n",pageNum);
 		readPage(fp1,pagebuf,pageNum); // 이진탐색 결과로 얻은 페이지 번호를 통해 페이지를 읽는다.
 		
 		memcpy(header_area,pagebuf,HEADER_AREA_SIZE); // 이후 pagebuf의 헤더를 읽는다.
@@ -572,8 +571,6 @@ int main(int argc, char *argv[])
 		int length;
 		memcpy(&offset,header_area + 8 * recordNum + 4,4); // 페이지에 저장된 레코드의 오프셋을 구한다.
 		memcpy(&length,header_area + 8 * recordNum + 8,4);  // 페이지에 저장된 레코드의 길이를 구한다.
-
-		printf("off %d lent %d \n",offset,length);
 
 		memcpy(recordbuf,pagebuf + offset + HEADER_AREA_SIZE, length); // 레코드 버퍼의 값을 담는다.
 
