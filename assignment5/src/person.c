@@ -326,52 +326,103 @@ void delete(FILE *fp, const char *id) {
 // 주어진 레코드 파일(recordfp)을 이용하여 심플 인덱스 파일(idxfp)을 생성한다.
 //
 void createIndex(FILE *idxfp, FILE *recordfp) {
-	char header_record[16];
-	int pagenum;
+	
 	rewind(recordfp); // fp 초기화.
-	fread(header_record,sizeof(header_record),1,recordfp); // file의 header record를 읽는다.
-	memcpy(&pagenum,header_record,sizeof(int));
+
+	char header_record[16];
+	fread(header_record,sizeof(header_record),1,recordfp); // record_file의 header record를 읽는다.
+	
+	int pagenum;
+	memcpy(&pagenum,header_record,sizeof(int)); // page갯수 읽음.
+	
 	int recordnum;
-	memcpy(&recordnum,header_record + 4,sizeof(int));
-	// page갯수 읽음.
+	memcpy(&recordnum,header_record + 4,sizeof(int)); //record 갯수 읽음.
 	// fp, pagebuf , pagenunm
 	char* pagebuf = (char*)malloc(sizeof(char)*PAGE_SIZE);
 	char* recordbuf = (char*)malloc(sizeof(char)*MAX_RECORD_SIZE);
 	char id[14];
 	double* id_array = (double*)malloc(sizeof(double)*recordnum); // 정렬용
 	char** record_array = (char**)malloc(sizeof(char*)*recordnum); // 작성용
+	
 	int cnt = 0;
-	for(int i = 0; i < recordnum; i++){
+	
+	for(int i = 0; i < recordnum; i++){ // record_array 초기화.
 		record_array[i] = (char*)malloc(sizeof(char)*21);
 	}
 
 	for(int i = 0; i < pagenum; i++){
-		readpage(recordfp,pagebuf,i);
+		readpage(recordfp,pagebuf,i); // 한개의 page를 읽음.
 		int numofrecord;
 		int offset;
 		int length;
-		memcpy(&numofrecord,pagebuf,sizeof(int));
+		
+		memcpy(&numofrecord,pagebuf,sizeof(int)); // page의 record 갯수 확인
+
 		for(int j = 0; j < numofrecord; j++){
 			memcpy(&offset,pagebuf + 4 + j * 8,sizeof(int));
 			memcpy(&length,pagebuf + 8 + j * 8,sizeof(int));
-			memcpy(recordbuf,pagebuf + offset + HEADER_AREA_SIZE,length);
+			memcpy(recordbuf,pagebuf + offset + HEADER_AREA_SIZE,length); // read record in page
+			
 			char ck;
-			memcpy(&ck,recordbuf,1);
-			if(ck == '*'){
+			
+			memcpy(&ck,recordbuf,1); // 삭제 마크 확인.
+			if(ck == '*'){ // 삭제시 넘어감.
 				continue;
-			}			
+			}
+
 			Person* p = (Person*)malloc(sizeof(Person));
-			unpack(recordbuf,p);
-			id_array[cnt] = atof(p->id);
+			unpack(recordbuf,p); // 레코드가 존재한다면 언팩을 해서 idxfile에 저장할 양식으로 바꿈.
+
 			memcpy(record_array[cnt],p->id,13);
 			memcpy(record_array[cnt] + 13,i,sizeof(int));
 			memcpy(record_array[cnt] + 17,j,sizeof(int));
+			
+			id_array[cnt] = atof(p->id); // 이후 정렬을 위해 id_array에 값을 넣어준다.
+
 			cnt++;
 			// index file에 대해 record 첫 4바이트는 페이지 번호, 그다음 레코드 번호 그다음 아이디
 			// 기존 인덱스 파일 읽어서 오름차순 정렬후 지금꺼 작성.
 			//p->id
 		}
 	}
+	double temp = 0; // 정렬을 위한 변수.
+
+	/*
+	id array값들을 선택정렬한다.
+	*/
+	for(int i = 0; i < cnt - 1; i++){
+		for(int j = i + 1; j < cnt; j++){
+			if(id_array[i] > id_array[j]){
+				temp = id_array[i];
+				id_array[i] = id_array[j];
+				id_array[j] = temp;
+			}
+		}
+	}
+
+	/*
+	idx file의 작성을 위한 작업. file의 앞 4바이트는 헤더 영역으로 레코드의 총 개수를 이진 정수로 저장한다.
+	*/
+	char header[4]; // 방법이 맞는지는 잘 모르겠음 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	memcpy(header,&cnt,sizeof(int));
+	fwrite(header,sizeof(header),1,idxfp);
+	
+
+	/*
+	정렬된 id_array값 순서에 맞게 record array를 찾아서 idx파일에 쓴다.
+	*/
+	char temp_id[13];
+	for(int i = 0; i < cnt; i++){
+		for(int j = 0; j < cnt; j++){
+			memcpy(&temp_id,record_array[j],13); // 13자리 id char를 읽는다.
+			double ck_id; 
+			ck_id = atof(temp_id); // 비교를 위해 double로 형변환.
+			if(id_array[i] == ck_id){
+				fwrite(record_array[j],21,1,idxfp); // 같은 경우 작성.
+			}
+		}
+	}
+	
 	//id 배열 정렬하고, 그다음 record array랑매칭 해서 바로 작성. idx포인터에 작성한다.
 }
 
@@ -381,7 +432,50 @@ void createIndex(FILE *idxfp, FILE *recordfp) {
 //
 void binarysearch(FILE *idxfp, const char *id, int *pageNum, int *recordNum) {
 	rewind(idxfp);
-	//fseek(idxfp,SEE_END,SEEK_SET);
+	int size;
+	int first = 0;
+	char read_id[13];
+	char read_record[MAX_RECORD_SIZE];
+
+	fseek(idxfp,0,SEEK_END);
+	size = ftell(idxfp); // 0부터 센거면 20을 빼주어야하나?
+	rewind(idxfp);
+	int last = (size / 21);
+	int flag = 0;
+	int round = 0; 
+
+	// 레코드 단위로 이진탐색이 수행되어야 하지 않나? 그래서 21로 나눠주고 곱해주는 작업을 함.
+
+	while(first <= last){
+		mid = (first + last) / 2;
+		round++;
+		fseek(idxfp,(mid * 21),SEEK_SET); // SEEK_CUR로 변경해야 할 수도 있음.
+		fread(read_record,MAX_RECORD_SIZE,1,idxfp);
+		memcpy(read_id,read_record,13);
+		double read = atof(read_id);
+		double request = atof(id);
+
+		if(read == request){
+			int pagenum;
+			int recordnum;
+			memcpy(pagenum,read_record +13,sizeof(int));
+			memcpy(recordnum,read_record + 17,sizeof(int));
+			pageNum = pagenum;
+			recordNum = recordnum;
+			flag = 1;
+			break;
+		}
+		else if(request < read){
+			last = mid - 1;
+		}
+		else if (read > request){
+			first = mid + 1;
+		}
+	}
+	printf("#reads:%d\n",round);
+	if(flag == 0){
+		printf("no persons");
+	}
 
 }
 
@@ -439,11 +533,52 @@ int main(int argc, char *argv[])
 		delete(fp,delete_id);
 	}
 	else if(!strcmp(argv[1],"i")){
-
-		
+		char file_name[12] = "records.idx";
+		FILE* fp1 = fopen(file_name,"w");
+		FILE* fp2 = fopen(argv[2],"r");
+		createIndex(fp1,fp2);		
 	}
 	else if(!strcmp(argv[1],"b")){
+		FILE* fp2 = fopen(argv[3],"r");
+
+		int pageNum = -1; // 아무것도 못찾았을때를 대비해 -1로 초기화.
+		int recordNum = -1;
+
+		binarysearch(fp2,argv[4],&pageNum,&recordNum); // key값을 인자로 이진탐색 시작.
 		
+		if(pagenum == -1){ // 출력 안하려면?
+			return 0;
+		}
+
+		FILE* fp1 = fopen(argv[2],"r"); // 이후 레코드파일 열기.
+		char pagebuf[PAGE_SIZE]; // 페이지 버퍼 선언.
+		Person* p = (Person*)malloc(sizeof(Person)); // 구조체 선언.
+		char recordbuf[MAX_RECORD_SIZE]; // 레코드 버퍼 선언.
+		char header_area[HEADER_AREA_SIZE]; // 페이지버퍼의 헤더 선언.
+
+		readPage(fp1,pagebuf,pageNum); // 이진탐색 결과로 얻은 페이지 번호를 통해 페이지를 읽는다.
+		
+		memcpy(header_area,pagebuf,HEADER_AREA_SIZE); // 이후 pagebuf의 헤더를 읽는다.
+
+		int offset;
+		int length;
+		memcpy(&offset,header_area + 8 * recordNum + 4,4); // 페이지에 저장된 레코드의 오프셋을 구한다.
+		memcpy(&length,header_area + 8 * recordNum + 8,4);  // 페이지에 저장된 레코드의 길이를 구한다.
+
+		memcpy(recordbuf,pagebuf + offset, length); // 레코드 버퍼의 값을 담는다.
+
+		unpack(recordbuf,p); 
+
+		/*
+		출력하는 과정.
+		*/
+		printf("id=%s\n",p->id);
+		printf("name=%s\n",p->name);
+		printf("age=%s\n",p->age);
+		printf("addr=%s\n",p->addr);
+		printf("phone=%s\n",p->phone);
+		printf("email=%s\n",p->email);
+
 	}
 	else {
 		printf("지원하지 않는 option입니다.\n");
