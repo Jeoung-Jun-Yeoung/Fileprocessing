@@ -22,9 +22,8 @@
 // 페이지 번호에 해당하는 페이지를 주어진 페이지 버퍼에 읽어서 저장한다. 페이지 버퍼는 반드시 페이지 크기와 일치해야 한다.
 //
 void readPage(FILE *fp, char *pagebuf, int pagenum) {
-	fseek(fp,(pagenum) * PAGE_SIZE + 16,SEEK_SET); 
+	fseek(fp,(pagenum * PAGE_SIZE) + 16,SEEK_SET); 
 	fread(pagebuf,PAGE_SIZE,1,fp);
-
 }
 
 //
@@ -326,65 +325,60 @@ void delete(FILE *fp, const char *id) {
 // 주어진 레코드 파일(recordfp)을 이용하여 심플 인덱스 파일(idxfp)을 생성한다.
 //
 void createIndex(FILE *idxfp, FILE *recordfp) {
-	printf("test1");
 	
 	rewind(recordfp); // fp 초기화.
 
-	char header_record[16];
+	char* header_record = (char*)malloc(sizeof(char) * 16);
 	fread(header_record,sizeof(header_record),1,recordfp); // record_file의 header record를 읽는다.
-	
 	int pagenum;
 	memcpy(&pagenum,header_record,sizeof(int)); // page갯수 읽음.
-	printf("test2");
 	int recordnum;
 	memcpy(&recordnum,header_record + 4,sizeof(int)); //record 갯수 읽음.
+	
 	// fp, pagebuf , pagenunm
 	char* pagebuf = (char*)malloc(sizeof(char)*PAGE_SIZE);
 	char* recordbuf = (char*)malloc(sizeof(char)*MAX_RECORD_SIZE);
-	char id[14];
-	double* id_array = (double*)malloc(sizeof(double)*recordnum); // 정렬용
+	char* id = (char*)malloc(sizeof(char)*14);
+	unsigned int* id_array = (unsigned int*)malloc(sizeof(unsigned int)*recordnum); // 정렬용
 	char** record_array = (char**)malloc(sizeof(char*)*recordnum); // 작성용
-	
+	int offset;
+	int length;
 
 	int cnt = 0;
-	printf("test3");
 	
 	for(int i = 0; i < recordnum; i++){ // record_array 초기화.
 		record_array[i] = (char*)malloc(sizeof(char)*22);
 	}
-	printf("test4");
 
-	printf("pg %d rn %d \n",pagenum,recordnum);
 	for(int i = 0; i < pagenum; i++){
+		rewind(recordfp);
 		readPage(recordfp,pagebuf,i); // 한개의 page를 읽음.
+		char* header_area = (char*)malloc(sizeof(char)*HEADER_AREA_SIZE);
 		int numofrecord;
-		int offset;
-		int length;
 		
-		memcpy(&numofrecord,pagebuf,sizeof(int)); // page의 record 갯수 확인
+		memcpy(header_area,pagebuf,HEADER_AREA_SIZE);
+
+		memcpy(&numofrecord,header_area,sizeof(int)); // page의 record 갯수 확인
+		
 
 		for(int j = 0; j < numofrecord; j++){
-			memcpy(&offset,pagebuf + 4 + j * 8,sizeof(int));
-			memcpy(&length,pagebuf + 8 + j * 8,sizeof(int));
-			memcpy(recordbuf,pagebuf + offset + HEADER_AREA_SIZE,length); // read record in page
+			memcpy(&offset,pagebuf + (j * 8) + 4,sizeof(int));
+			memcpy(&length,pagebuf + (j * 8) + 8 ,sizeof(int));
+			memcpy(recordbuf,pagebuf + HEADER_AREA_SIZE + offset,length); // read record in page
 			
 			char ck;
-			
 			memcpy(&ck,recordbuf,1); // 삭제 마크 확인.
 			if(ck == '*'){ // 삭제시 넘어감.
 				continue;
 			}
-
 			Person* p = (Person*)malloc(sizeof(Person));
+			
 			unpack(recordbuf,p); // 레코드가 존재한다면 언팩을 해서 idxfile에 저장할 양식으로 바꿈.
 			
 			memcpy(record_array[cnt],p->id,13);
-			printf("%s %ld \n",record_array[cnt],strlen(record_array[cnt]));
 			memcpy(record_array[cnt]+13,&i,sizeof(int));
 			memcpy(record_array[cnt]+17,&j,sizeof(int));
-			printf("1 %s\n",record_array[cnt]);
-			printf("null ck %s %ld \n",record_array[cnt],sizeof(record_array[cnt]));
-			id_array[cnt] = atof(p->id); // 이후 정렬을 위해 id_array에 값을 넣어준다.
+			id_array[cnt] = atoi(p->id); // 이후 정렬을 위해 id_array에 값을 넣어준다.
 
 			cnt++;
 			// index file에 대해 record 첫 4바이트는 페이지 번호, 그다음 레코드 번호 그다음 아이디
@@ -392,11 +386,10 @@ void createIndex(FILE *idxfp, FILE *recordfp) {
 			//p->id
 		}
 	}
-	double temp = 0; // 정렬을 위한 변수.
+	unsigned int temp = 0; // 정렬을 위한 변수.
 	
 	
 	// id array값들을 선택정렬한다.
-
 	for(int i = 0; i < cnt - 1; i++){
 		for(int j = i + 1; j < cnt; j++){
 			if(id_array[i] > id_array[j]){
@@ -406,8 +399,6 @@ void createIndex(FILE *idxfp, FILE *recordfp) {
 			}
 		}
 	}
-
-	printf("%f %f\n",id_array[0],id_array[1]);
 	
 	// idx file의 작성을 위한 작업. file의 앞 4바이트는 헤더 영역으로 레코드의 총 개수를 이진 정수로 저장한다.
 	
@@ -415,7 +406,6 @@ void createIndex(FILE *idxfp, FILE *recordfp) {
 	memcpy(header,&cnt,sizeof(int));
 	fwrite(header,sizeof(header),1,idxfp);
 	
-
 	
 	//정렬된 id_array값 순서에 맞게 record array를 찾아서 idx파일에 쓴다.
 	
@@ -423,9 +413,8 @@ void createIndex(FILE *idxfp, FILE *recordfp) {
 	for(int i = 0; i < cnt; i++){
 		for(int j = 0; j < cnt; j++){
 			memcpy(&temp_id,record_array[j],13); // 13자리 id char를 읽는다.
-			printf("2 %s \n",record_array[j]);
-			double ck_id; 
-			ck_id = atof(temp_id); // 비교를 위해 double로 형변환.
+			unsigned int ck_id; 
+			ck_id = atoi(temp_id); // 비교를 위해 double로 형변환.
 			if(id_array[i] == ck_id){
 				fwrite(record_array[j],21,1,idxfp); // 같은 경우 작성.
 			}
@@ -452,25 +441,21 @@ void binarysearch(FILE *idxfp, const char *id, int *pageNum, int *recordNum) {
 	int last = (size / 21) - 1;
 	int flag = 0;
 	int round = 0; 
-	printf("last %d \n",last);
 	// 레코드 단위로 이진탐색이 수행되어야 하지 않나? 그래서 21로 나눠주고 곱해주는 작업을 함.
 
 	while(first <= last){
 		int mid = (first + last) / 2;
-		printf("mid %d \n",mid);
 		round++;
 		fseek(idxfp,(mid * 21) + 4,SEEK_SET); // SEEK_CUR로 변경해야 할 수도 있음.
 		fread(read_record,21,1,idxfp);
-		printf("read record %s \n",read_record);
 		memcpy(read_id,read_record,13);
-		printf("read id %s\n",read_id);
-		double read = atof(read_id);
-		double request = atof(id);
+
+		unsigned int read = atoi(read_id);
+		unsigned int request = atoi(id);
 
 		if(read == request){
 			memcpy(pageNum,read_record +13,sizeof(int));
 			memcpy(recordNum,read_record + 17,sizeof(int));
-			printf("pg %d re %d \n",*pageNum,*recordNum);
 			flag = 1;
 			break;
 		}
@@ -542,8 +527,9 @@ int main(int argc, char *argv[])
 		delete(fp,delete_id);
 	}
 	else if(!strcmp(argv[1],"i")){
-		FILE* index_fp = fopen(argv[3],"w+");
-		FILE* record_fp = fopen(argv[2],"r+");
+		FILE* index_fp = fopen(argv[3],"w");
+		FILE* record_fp = fopen(argv[2],"r");
+		
 		createIndex(index_fp,record_fp);	
 	}
 	else if(!strcmp(argv[1],"b")){
@@ -552,30 +538,26 @@ int main(int argc, char *argv[])
 		int pageNum = -1; // 아무것도 못찾았을때를 대비해 -1로 초기화.
 		int recordNum = -1;
 		binarysearch(fp2,argv[4],&pageNum,&recordNum); // key값을 인자로 이진탐색 시작.
-		
+
 		if(pageNum == -1){ // 출력 안하려면?
 			return 0;
 		}
 
 		FILE* fp1 = fopen(argv[2],"r"); // 이후 레코드파일 열기.
-		char pagebuf[PAGE_SIZE]; // 페이지 버퍼 선언.
+		char* pagebuf = (char*)malloc(sizeof(char)*PAGE_SIZE); // 페이지 버퍼 선언.
 		Person* p = (Person*)malloc(sizeof(Person)); // 구조체 선언.
-		char recordbuf[MAX_RECORD_SIZE]; // 레코드 버퍼 선언.
-		char header_area[HEADER_AREA_SIZE]; // 페이지버퍼의 헤더 선언.
-
+		char* recordbuf = (char*)malloc(sizeof(char)*MAX_RECORD_SIZE); // 레코드 버퍼 선언.
+		char* header_area = (char*)malloc(sizeof(char)*HEADER_AREA_SIZE); // 페이지버퍼의 헤더 선언.
+		
 		readPage(fp1,pagebuf,pageNum); // 이진탐색 결과로 얻은 페이지 번호를 통해 페이지를 읽는다.
 		
 		memcpy(header_area,pagebuf,HEADER_AREA_SIZE); // 이후 pagebuf의 헤더를 읽는다.
-
 		int offset;
 		int length;
-		memcpy(&offset,header_area + 8 * recordNum + 4,4); // 페이지에 저장된 레코드의 오프셋을 구한다.
-		memcpy(&length,header_area + 8 * recordNum + 8,4);  // 페이지에 저장된 레코드의 길이를 구한다.
-
+		memcpy(&offset,header_area + (8 * recordNum) + 4,sizeof(int)); // 페이지에 저장된 레코드의 오프셋을 구한다.
+		memcpy(&length,header_area + (8 * recordNum) + 8,sizeof(int));  // 페이지에 저장된 레코드의 길이를 구한다.
 		memcpy(recordbuf,pagebuf + offset + HEADER_AREA_SIZE, length); // 레코드 버퍼의 값을 담는다.
-
 		unpack(recordbuf,p); 
-
 		/*
 		출력하는 과정.
 		*/

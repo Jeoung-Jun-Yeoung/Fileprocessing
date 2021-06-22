@@ -2,7 +2,7 @@
 #define	_PERSON_H_
 
 #define MAX_RECORD_SIZE	100 // including 6 delimeters
-#define PAGE_SIZE		256 // 수정 가능함	
+#define PAGE_SIZE		512 // 수정 가능함	
 #define HEADER_AREA_SIZE	(PAGE_SIZE/10)
 #define DATA_AREA_SIZE	(PAGE_SIZE - HEADER_AREA_SIZE)
 
